@@ -51,23 +51,27 @@ class vCenter():
     def get_host_status(self):
         hosts = self.get_hosts()
         all_hosts = {}
+        all_core_count = 0
         for host in hosts:
             cpu_model = host.summary.hardware.cpuModel
             cpu_cores = host.summary.hardware.numCpuCores
             cpu_usage = str(round(host.summary.quickStats.overallCpuUsage/1000, 2)) + " GHz"
             memory = str(round(((host.summary.hardware.memorySize/1024)/1024)/1024,0))+ " GB"
+            cluster_name = host.parent.name
             if host.runtime.inMaintenanceMode:
                 standby = "Yes"
             else:
                 standby = "No"
+                all_core_count += cpu_cores
             all_hosts[host.name] = {
+                'Cluster': cluster_name,
                 'CPU Model': cpu_model,
                 'CPU Cores': cpu_cores,
                 'CPU Usage': cpu_usage, 
                 'Memory': memory,
                 'MaintMode': standby
             }
-        return all_hosts
+        return all_hosts, all_core_count
     
     def get_vms(self) -> list:
         vms = []
@@ -104,13 +108,15 @@ class vCenter():
 
 
     def write_to_csv(self):
+        host_data, total_cores = self.get_host_status()
         with open(f'{self.og_location}.csv', mode='w', newline='') as file:
-            fieldnames = ["Host Name", "CPU Model", "CPU Cores", "CPU Usage", "Memory", "MaintMode"]
+            fieldnames = ["Host Name", "Cluster", "CPU Model", "CPU Cores", "CPU Usage", "Memory", "MaintMode"]
             writer = csv.DictWriter(file, fieldnames=fieldnames)
             writer.writeheader()
-            for host_name, host_data in self.get_host_status().items():
+
+            for host_name, host_data in host_data.items():
                 writer.writerow({"Host Name": host_name, **host_data})
-            writer.writerow({"Host Name": "Total Cores NOT in MM", "CPU Model": '=SUMIF(F:F,"Yes",C:C)', "CPU Cores": "", "CPU Usage": "", "Memory": "", "MaintMode": ""})
+            writer.writerow({"Host Name": "Total Cores NOT in MM", "Cluster": total_cores, "CPU Model": "", "CPU Cores": "", "CPU Usage": "", "Memory": "", "MaintMode": ""})
             time.sleep(2)
         self.disconnect()
 
@@ -121,7 +127,7 @@ def send_email_with_attachment(csv_list):
     sender = 'vmware-report@tonaquint.com'
     receiver ='tsullivan@tonaquint.com'
     subject = "Weekly vCenter Core Count Report"
-    body = "Attached is the weekly vCenter core count report."
+    body = "Attached is the weekly vCenter core count report. Opening this CSV with Excel will calculate the non-MM core counts."
     msg['Subject'] = subject
     msg['From'] = sender
     msg['To'] = receiver
@@ -143,11 +149,11 @@ def send_email_with_attachment(csv_list):
         print("Email sent")
 
 sgu_prod = vCenter('sgu_prod')
-#sgu_inf = vCenter('sgu_inf')
+sgu_inf = vCenter('sgu_inf')
 boi_prod = vCenter('boi_prod')
-#boi_inf = vCenter('boi_inf')
+boi_inf = vCenter('boi_inf')
 fishbowl = vCenter('fishbowl')
-#okc_inf = vCenter('okc_inf')
+okc_inf = vCenter('okc_inf')
 
 # main.ip = "tdc-vcsa01.tonaquint.local"
 # #main.connect()
@@ -168,10 +174,13 @@ fishbowl = vCenter('fishbowl')
 sgu_prod.write_to_csv()
 boi_prod.write_to_csv()
 fishbowl.write_to_csv()
+sgu_inf.write_to_csv()
+boi_inf.write_to_csv()
+okc_inf.write_to_csv()
 
 
 
 csv_list = ['sgu_prod.csv', 
         'boi_prod.csv',
         'fishbowl.csv',]
-send_email_with_attachment(csv_list)
+#send_email_with_attachment(csv_list)
