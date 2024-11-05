@@ -10,8 +10,18 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 import time
+import os
 
 class vCenter():
+    """
+    Description: This class is used to connect to a vCenter server and retrieve information about the hosts, VMs, datastores, and networks.
+
+    Methods:
+    get_clusters() -> list: Returns a list of the clusters in the vCenter server.
+    get_hosts() -> list: Returns a list of the hosts in the vCenter server.
+    get_host_status() -> dict: Returns a dictionary of the hosts in the vCenter server along with certain properties.
+    
+    """
 
     def __init__(self, location): #Initiates the connection to the vCenter server
         locations = {
@@ -29,9 +39,14 @@ class vCenter():
         self.user = vcenter_settings.username
         self.password = vcenter_settings.password
         self.ip = self.location
-        context = ssl._create_unverified_context()
-        self.si = SmartConnect(host=self.ip, user=self.user, pwd=self.password, sslContext=context)
-        self.content = self.si.RetrieveContent()
+        try:
+            print("Attempting Connection to: ", self.location)
+            context = ssl._create_unverified_context()
+            self.si = SmartConnect(host=self.ip, user=self.user, pwd=self.password, sslContext=context)
+            self.content = self.si.RetrieveContent()
+            print("Connection Established")
+        except Exception as e:
+            print(f"Error connecting to {self.location}: {e}")
     
     def disconnect(self):
         Disconnect(self.si)
@@ -48,7 +63,7 @@ class vCenter():
                 hosts.append(host)
         return hosts
     
-    def get_host_status(self):
+    def get_host_status(self) -> dict:
         hosts = self.get_hosts()
         all_hosts = {}
         all_core_count = 0
@@ -108,6 +123,7 @@ class vCenter():
 
 
     def write_to_csv(self):
+        print("Creating CSV for ", self.og_location)
         host_data, total_cores = self.get_host_status()
         with open(f'{self.og_location}.csv', mode='w', newline='') as file:
             fieldnames = ["Host Name", "Cluster", "CPU Model", "CPU Cores", "CPU Usage", "Memory", "MaintMode"]
@@ -121,9 +137,8 @@ class vCenter():
         self.disconnect()
 
 def send_email_with_attachment(csv_list):
+    print("Creating Email")
     msg = MIMEMultipart()
-    
-
     sender = 'vmware-report@tonaquint.com'
     receiver ='tsullivan@tonaquint.com'
     subject = "Weekly vCenter Core Count Report"
@@ -132,8 +147,7 @@ def send_email_with_attachment(csv_list):
     msg['From'] = sender
     msg['To'] = receiver
     msg.attach(MIMEText(body, 'plain'))
-
-
+    print("Attaching CSVs")
     for csv in csv_list:
         with open(csv, 'rb') as file:
             part = MIMEBase('application', 'octet-stream')
@@ -143,44 +157,54 @@ def send_email_with_attachment(csv_list):
             #print(part)
             msg.attach(part)
 
-    print(msg)
+    #print(msg)
     with smtplib.SMTP('10.101.70.50', 25) as smtp:
         smtp.sendmail(sender, receiver, msg.as_string())
         print("Email sent")
 
-sgu_prod = vCenter('sgu_prod')
-sgu_inf = vCenter('sgu_inf')
-boi_prod = vCenter('boi_prod')
-boi_inf = vCenter('boi_inf')
-fishbowl = vCenter('fishbowl')
-okc_inf = vCenter('okc_inf')
+def sgu_prod():
+    sgu_prod = vCenter('sgu_prod')
+    sgu_prod.write_to_csv()
 
-# main.ip = "tdc-vcsa01.tonaquint.local"
-# #main.connect()
-# data = main.get_host_status()
-# #write_to_csv(data)
-# print(data)
-# main.disconnect()
+def sgu_inf():
+    sgu_inf = vCenter('sgu_inf')
+    sgu_inf.write_to_csv()
 
-# Setup multiple threads to run the vCenter functions
+def boi_prod():
+    boi_prod = vCenter('boi_prod')
+    boi_prod.write_to_csv()
 
-#threading.Thread(target=sgu_prod.write_to_csv).start()
-#threading.Thread(target=sgu_inf.write_to_csv).start()
-#threading.Thread(target=boi_prod.write_to_csv).start()
-#threading.Thread(target=boi_inf.write_to_csv).start()
-#threading.Thread(target=fishbowl.write_to_csv).start()
-#threading.Thread(target=okc_inf.write_to_csv).start()
+def boi_inf():
+    boi_inf = vCenter('boi_inf')
+    boi_inf.write_to_csv()
 
-sgu_prod.write_to_csv()
-boi_prod.write_to_csv()
-fishbowl.write_to_csv()
-sgu_inf.write_to_csv()
-boi_inf.write_to_csv()
-okc_inf.write_to_csv()
+def fishbowl():
+    fishbowl = vCenter('fishbowl')
+    fishbowl.write_to_csv()
+
+def okc_inf():
+    okc_inf = vCenter('okc_inf')
+    okc_inf.write_to_csv()
+
+
+# Setup multiple threads to run the vCenter functions concurrently
+
+threading.Thread(target=sgu_prod).start()
+threading.Thread(target=sgu_inf).start()
+threading.Thread(target=boi_prod).start()
+threading.Thread(target=boi_inf).start()
+threading.Thread(target=fishbowl).start()
+threading.Thread(target=okc_inf).start()
+
+# Check all files exist before proceeding...
 
 
 
 csv_list = ['sgu_prod.csv', 
         'boi_prod.csv',
         'fishbowl.csv',]
-#send_email_with_attachment(csv_list)
+
+while not all([True if csv in os.listdir() else False for csv in csv_list]):
+    time.sleep(1)
+
+send_email_with_attachment(csv_list)
